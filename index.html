@@ -86,7 +86,8 @@
       showMainContent();
     } catch (error) {
       console.error('LIFFの初期化またはデータ取得でエラーが発生しました:', error);
-      showModal('アプリの起動に失敗しました。画面を再読み込みしてください。');
+      displayError('アプリの起動に失敗しました。画面を再読み込みしてください。');
+      showMainContent();
     }
   }
 
@@ -100,7 +101,7 @@
       }
     } catch (error) {
       console.error('スケジュールの取得に失敗しました:', error);
-      showModal('スケジュールの取得に失敗しました。');
+      displayError('スケジュールの取得に失敗しました。');
     }
   }
 
@@ -148,7 +149,7 @@
       }
     } catch (error) {
       console.error('Failed to submit attendance', error);
-      showModal('送信に失敗しました。もう一度お試しください。');
+      displayError('送信に失敗しました。もう一度お試しください。');
       button.disabled = false;
       button.textContent = '回答を送信する';
     }
