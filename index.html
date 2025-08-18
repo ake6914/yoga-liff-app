@@ -36,8 +36,6 @@
     <div id="main-content" class="hidden">
       <header class="mb-6">
         <h1 class="text-3xl font-bold text-gray-800">ヨガ出欠連絡</h1>
-        <!-- ★★★★★ 修正箇所 ★★★★★ -->
-        <!-- ウェルカムメッセージを削除 -->
       </header>
 
       <div id="schedule-list" class="space-y-4">
@@ -47,8 +45,6 @@
       <!-- エラーメッセージ表示用の領域 -->
       <div id="error-message" class="hidden my-4 p-4 bg-red-100 text-red-700 rounded-lg"></div>
 
-      <!-- ★★★★★ 修正箇所 ★★★★★ -->
-      <!-- LIFFの準備ができるまでボタンを無効化(disabled)しておく -->
       <button id="submit-button" class="mt-8 w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
         回答を送信する
       </button>
@@ -83,22 +79,16 @@
 
   /**
    * アプリの初期化
-   * ★★★★★ 修正箇所 ★★★★★
-   * 先に画面を表示し、LIFFの初期化は裏側で行うように変更
    */
   async function initializeApp() {
     try {
-      // 1. まずスケジュールを取得して画面に表示する
       await fetchSchedules();
       showMainContent();
-
-      // 2. 画面表示後、裏側でLIFFの初期化とユーザー情報取得を開始する
       initializeLiffInBackground();
-
     } catch (error) {
       console.error('アプリの起動処理でエラーが発生しました:', error);
       displayError('アプリの起動に失敗しました。画面を再読み込みしてください。');
-      showMainContent(); // エラーでもローディングは止める
+      showMainContent();
     }
   }
 
@@ -107,21 +97,14 @@
    */
   async function initializeLiffInBackground() {
     try {
-      console.log("LIFF初期化をバックグラウンドで開始します。");
       await liff.init({ liffId: LIFF_ID });
-      
       userProfile = await liff.getProfile();
-      console.log("ユーザー情報を取得しました:", userProfile.displayName);
-
-      // ユーザー情報が取得できたら、送信ボタンを有効化する
       document.getElementById('submit-button').disabled = false;
-      
     } catch (error) {
       console.error('LIFFのバックグラウンド初期化でエラーが発生しました:', error);
       displayError('ユーザー情報の取得に失敗しました。回答を送信できません。');
     }
   }
-
 
   /**
    * GASからスケジュールを取得する
@@ -129,7 +112,6 @@
   async function fetchSchedules() {
     try {
       const response = await postToAction('getSchedules');
-
       if (response.status === 'success') {
         renderSchedules(response.data);
       } else {
@@ -137,17 +119,16 @@
       }
     } catch (error) {
       console.error('スケジュールの取得に失敗しました (fetchSchedules内):', error);
-      // このエラーは後続処理に影響するため、呼び出し元に投げる
       throw error;
     }
   }
 
   /**
    * 回答を送信する処理
+   * ★★★★★ 修正箇所 ★★★★★
+   * 先に成功メッセージを表示し、データ送信は裏側で行うように変更
    */
   async function handleSubmit() {
-    // ★★★★★ 修正箇所 ★★★★★
-    // 念のため、ユーザー情報がまだ準備できていない場合は処理を中断する
     if (!userProfile) {
       showModal('ユーザー情報を準備中です。少し待ってからもう一度お試しください。');
       return;
@@ -155,7 +136,7 @@
 
     const button = document.getElementById('submit-button');
     button.disabled = true;
-    button.textContent = '送信中...';
+    button.textContent = '処理中...';
 
     const scheduleElements = document.querySelectorAll('#schedule-list > div[data-event-id]');
     const attendances = [];
@@ -178,25 +159,29 @@
         return;
     }
 
-    try {
-      const payload = {
-        userId: userProfile.userId,
-        userName: userProfile.displayName,
-        attendances: attendances
-      };
-      const response = await postToAction('submitAttendance', payload);
+    const payload = {
+      userId: userProfile.userId,
+      userName: userProfile.displayName,
+      attendances: attendances
+    };
 
-      if (response.status === 'success') {
-        showModal('回答を送信しました！', true);
-      } else {
-        throw new Error(response.message || '送信に失敗しました。');
-      }
-    } catch (error) {
-      console.error('Failed to submit attendance', error);
-      displayError('送信に失敗しました。もう一度お試しください。');
-      button.disabled = false;
-      button.textContent = '回答を送信する';
-    }
+    // 1. 先に成功モーダルを表示する
+    //    第2引数をtrueにすることで、モーダルを閉じるとLIFFも閉じるように設定
+    showModal('回答を送信しました！', true);
+
+    // 2. データ送信は裏側で行う（完了を待たない）
+    //    もし失敗した場合はコンソールにエラーを記録する
+    postToAction('submitAttendance', payload)
+      .then(response => {
+        if (response.status === 'success') {
+          console.log('バックグラウンドでの送信に成功しました。');
+        } else {
+          console.error('バックグラウンドでの送信に失敗しました:', response.message);
+        }
+      })
+      .catch(error => {
+        console.error('バックグラウンドでの送信中に通信エラーが発生しました:', error);
+      });
   }
   
   // (これ以降はヘルパー関数です)
@@ -205,9 +190,6 @@
   const modalMessage = document.getElementById('modal-message');
   const modalCloseButton = document.getElementById('modal-close-button');
 
-  /**
-   * モーダルを表示する関数
-   */
   function showModal(message, closeLiff = false) {
     modalMessage.textContent = message;
     modal.classList.remove('hidden');
@@ -223,9 +205,6 @@
     });
   }
 
-  /**
-   * エラーメッセージを画面内に表示するための関数
-   */
   function displayError(message) {
     const errorDiv = document.getElementById('error-message');
     if (errorDiv) {
@@ -234,9 +213,6 @@
     }
   }
 
-  /**
-   * GASのAPIを呼び出す共通関数
-   */
   async function postToAction(action, data = {}) {
     try {
         const response = await fetch(GAS_WEB_APP_URL, {
@@ -258,17 +234,11 @@
     }
   }
 
-  /**
-   * メインコンテンツを表示し、ローディングを非表示にする
-   */
   function showMainContent() {
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('main-content').classList.remove('hidden');
   }
 
-  /**
-   * スケジュールを描画する
-   */
   function renderSchedules(schedules) {
     const listElement = document.getElementById('schedule-list');
     if (schedules.length === 0) {
