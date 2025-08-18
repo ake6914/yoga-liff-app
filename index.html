@@ -79,17 +79,18 @@
 
   /**
    * アプリの初期化
+   * ★★★★★ 修正箇所 ★★★★★
+   * UI表示を最優先し、データ取得とLIFF初期化は並行してバックグラウンドで行う
    */
-  async function initializeApp() {
-    try {
-      await fetchSchedules();
-      showMainContent();
-      initializeLiffInBackground();
-    } catch (error) {
-      console.error('アプリの起動処理でエラーが発生しました:', error);
-      displayError('アプリの起動に失敗しました。画面を再読み込みしてください。');
-      showMainContent();
-    }
+  function initializeApp() {
+    // 1. まずはローディングを消して、アプリの骨格を瞬時に表示する
+    showMainContent();
+    // スケジュール表示エリアには「読み込み中」のメッセージを出しておく
+    document.getElementById('schedule-list').innerHTML = `<p class="text-center text-gray-500">スケジュールを読み込み中...</p>`;
+
+    // 2. 時間のかかる処理（スケジュール取得とLIFF初期化）を並行して開始する
+    fetchSchedules();
+    initializeLiffInBackground();
   }
 
   /**
@@ -99,7 +100,9 @@
     try {
       await liff.init({ liffId: LIFF_ID });
       userProfile = await liff.getProfile();
+      // ユーザー情報が取得できたら送信ボタンを有効化
       document.getElementById('submit-button').disabled = false;
+      console.log("ユーザー情報を取得しました:", userProfile.displayName);
     } catch (error) {
       console.error('LIFFのバックグラウンド初期化でエラーが発生しました:', error);
       displayError('ユーザー情報の取得に失敗しました。回答を送信できません。');
@@ -113,20 +116,20 @@
     try {
       const response = await postToAction('getSchedules');
       if (response.status === 'success') {
+        // 成功したら「読み込み中」のメッセージをスケジュール一覧で上書きする
         renderSchedules(response.data);
       } else {
         throw new Error(response.message || 'GASからエラーが返されました。');
       }
     } catch (error) {
       console.error('スケジュールの取得に失敗しました (fetchSchedules内):', error);
-      throw error;
+      // 失敗したら「読み込み中」のメッセージをエラー表示で上書きする
+      document.getElementById('schedule-list').innerHTML = `<p class="text-center text-red-500">スケジュールの読み込みに失敗しました。</p>`;
     }
   }
 
   /**
    * 回答を送信する処理
-   * ★★★★★ 修正箇所 ★★★★★
-   * 先に成功メッセージを表示し、データ送信は裏側で行うように変更
    */
   async function handleSubmit() {
     if (!userProfile) {
@@ -165,12 +168,10 @@
       attendances: attendances
     };
 
-    // 1. 先に成功モーダルを表示する
-    //    第2引数をtrueにすることで、モーダルを閉じるとLIFFも閉じるように設定
+    // 先に成功モーダルを表示する
     showModal('回答を送信しました！', true);
 
-    // 2. データ送信は裏側で行う（完了を待たない）
-    //    もし失敗した場合はコンソールにエラーを記録する
+    // データ送信は裏側で行う
     postToAction('submitAttendance', payload)
       .then(response => {
         if (response.status === 'success') {
