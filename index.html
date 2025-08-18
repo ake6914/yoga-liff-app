@@ -238,7 +238,8 @@
     });
     
     if (attendances.length === 0) {
-        showModal('少なくとも1つの日程について「出席」または「欠席」を選択してください。');
+        //showModal('少なくとも1つの日程について「出席」または「欠席」を選択してください。');
+        alert('少なくとも1つの日程について「出席」または「欠席」を選択してください。');
         button.disabled = false;
         button.textContent = '回答を送信する';
         return;
@@ -253,7 +254,8 @@
       const response = await postToAction('submitAttendance', payload);
 
       if (response.status === 'success') {
-        showModal('回答を送信しました！');
+        //showModal('回答を送信しました！');
+        alert('回答を送信しました！');
         liff.closeWindow();
       } else {
         throw new Error(response.message || '送信に失敗しました。');
