@@ -121,55 +121,6 @@
       displayError('スケジュールの取得に失敗しました。');
     }
   }
-
-  async function handleSubmit() {
-    const button = document.getElementById('submit-button');
-    button.disabled = true;
-    button.textContent = '送信中...';
-
-    const scheduleElements = document.querySelectorAll('#schedule-list > div[data-event-id]');
-    const attendances = [];
-
-    scheduleElements.forEach(el => {
-      const eventId = el.dataset.eventId;
-      const selected = el.querySelector(`input[name="attendance-${eventId}"]:checked`);
-      if (selected && selected.value !== '未定') {
-        attendances.push({
-          eventId: eventId,
-          status: selected.value
-        });
-      }
-    });
-    
-    if (attendances.length === 0) {
-        showModal('少なくとも1つの日程について「出席」または「欠席」を選択してください。');
-        button.disabled = false;
-        button.textContent = '回答を送信する';
-        return;
-    }
-
-    try {
-      const payload = {
-        userId: userProfile.userId,
-        userName: userProfile.displayName,
-        attendances: attendances
-      };
-      const response = await postToAction('submitAttendance', payload);
-
-      if (response.status === 'success') {
-
-        // LIFFを閉じる処理は、モーダルの閉じるボタンに移動
-        showModal('回答を送信しました！', true); 
-      } else {
-        throw new Error(response.message || '送信に失敗しました。');
-      }
-    } catch (error) {
-      console.error('Failed to submit attendance', error);
-      displayError('送信に失敗しました。もう一度お試しください。');
-      button.disabled = false;
-      button.textContent = '回答を送信する';
-    }
-  }
   
   const modal = document.getElementById('custom-modal');
   const modalMessage = document.getElementById('modal-message');
