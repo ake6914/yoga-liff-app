@@ -36,7 +36,8 @@
     <div id="main-content" class="hidden">
       <header class="mb-6">
         <h1 class="text-3xl font-bold text-gray-800">ヨガ出欠連絡</h1>
-        <p id="welcome-message" class="text-gray-600 mt-1"></p>
+        <!-- ★★★★★ 修正箇所 ★★★★★ -->
+        <!-- ウェルカムメッセージを削除 -->
       </header>
 
       <div id="schedule-list" class="space-y-4">
@@ -46,7 +47,9 @@
       <!-- エラーメッセージ表示用の領域 -->
       <div id="error-message" class="hidden my-4 p-4 bg-red-100 text-red-700 rounded-lg"></div>
 
-      <button id="submit-button" class="mt-8 w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 disabled:bg-gray-400">
+      <!-- ★★★★★ 修正箇所 ★★★★★ -->
+      <!-- LIFFの準備ができるまでボタンを無効化(disabled)しておく -->
+      <button id="submit-button" class="mt-8 w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
         回答を送信する
       </button>
     </div>
@@ -80,23 +83,45 @@
 
   /**
    * アプリの初期化
+   * ★★★★★ 修正箇所 ★★★★★
+   * 先に画面を表示し、LIFFの初期化は裏側で行うように変更
    */
   async function initializeApp() {
     try {
+      // 1. まずスケジュールを取得して画面に表示する
+      await fetchSchedules();
+      showMainContent();
+
+      // 2. 画面表示後、裏側でLIFFの初期化とユーザー情報取得を開始する
+      initializeLiffInBackground();
+
+    } catch (error) {
+      console.error('アプリの起動処理でエラーが発生しました:', error);
+      displayError('アプリの起動に失敗しました。画面を再読み込みしてください。');
+      showMainContent(); // エラーでもローディングは止める
+    }
+  }
+
+  /**
+   * 裏側でLIFFの初期化とユーザー情報取得を行う
+   */
+  async function initializeLiffInBackground() {
+    try {
+      console.log("LIFF初期化をバックグラウンドで開始します。");
       await liff.init({ liffId: LIFF_ID });
       
       userProfile = await liff.getProfile();
-      document.getElementById('welcome-message').textContent = `${userProfile.displayName}さん、こんにちは！`;
+      console.log("ユーザー情報を取得しました:", userProfile.displayName);
+
+      // ユーザー情報が取得できたら、送信ボタンを有効化する
+      document.getElementById('submit-button').disabled = false;
       
-      await fetchSchedules();
-      
-      showMainContent();
     } catch (error) {
-      console.error('LIFFの初期化またはデータ取得でエラーが発生しました:', error);
-      displayError('アプリの起動に失敗しました。画面を再読み込みしてください。');
-      showMainContent();
+      console.error('LIFFのバックグラウンド初期化でエラーが発生しました:', error);
+      displayError('ユーザー情報の取得に失敗しました。回答を送信できません。');
     }
   }
+
 
   /**
    * GASからスケジュールを取得する
@@ -112,7 +137,8 @@
       }
     } catch (error) {
       console.error('スケジュールの取得に失敗しました (fetchSchedules内):', error);
-      displayError('スケジュールの取得に失敗しました。');
+      // このエラーは後続処理に影響するため、呼び出し元に投げる
+      throw error;
     }
   }
 
@@ -120,6 +146,13 @@
    * 回答を送信する処理
    */
   async function handleSubmit() {
+    // ★★★★★ 修正箇所 ★★★★★
+    // 念のため、ユーザー情報がまだ準備できていない場合は処理を中断する
+    if (!userProfile) {
+      showModal('ユーザー情報を準備中です。少し待ってからもう一度お試しください。');
+      return;
+    }
+
     const button = document.getElementById('submit-button');
     button.disabled = true;
     button.textContent = '送信中...';
