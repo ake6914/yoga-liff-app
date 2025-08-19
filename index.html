@@ -28,8 +28,9 @@
 
   <div id="app" class="container mx-auto p-4 max-w-lg">
     <!-- ローディング画面 -->
-    <div id="loading" class="flex justify-center items-center h-screen">
+    <div id="loading" class="flex flex-col justify-center items-center h-screen">
       <div class="loader"></div>
+      <p class="mt-4 text-gray-500">データを読み込んでいます...</p>
     </div>
 
     <!-- メインコンテンツ -->
@@ -78,52 +79,59 @@
   document.getElementById('submit-button').addEventListener('click', handleSubmit);
 
   /**
-   * アプリの初期化
-   * ★★★★★ 修正箇所 ★★★★★
-   * UI表示を最優先し、データ取得とLIFF初期化は並行してバックグラウンドで行う
+   * ★★★★★ 変更点 ★★★★★
+   * アプリの初期化処理を簡潔化。
+   * LIFF初期化 → プロフィール取得 → スケジュール取得 の順で実行し、
+   * 完了後にメインコンテンツを表示する。
    */
-  function initializeApp() {
-    // 1. まずはローディングを消して、アプリの骨格を瞬時に表示する
-    showMainContent();
-    // スケジュール表示エリアには「読み込み中」のメッセージを出しておく
-    document.getElementById('schedule-list').innerHTML = `<p class="text-center text-gray-500">スケジュールを読み込み中...</p>`;
-
-    // 2. 時間のかかる処理（スケジュール取得とLIFF初期化）を並行して開始する
-    fetchSchedules();
-    initializeLiffInBackground();
-  }
-
-  /**
-   * 裏側でLIFFの初期化とユーザー情報取得を行う
-   */
-  async function initializeLiffInBackground() {
+  async function initializeApp() {
     try {
+      // 1. LIFFを初期化
       await liff.init({ liffId: LIFF_ID });
+      
+      // 2. ユーザープロフィールを取得
       userProfile = await liff.getProfile();
-      // ユーザー情報が取得できたら送信ボタンを有効化
-      document.getElementById('submit-button').disabled = false;
       console.log("ユーザー情報を取得しました:", userProfile.displayName);
+      
+      // 3. ユーザーIDを使ってスケジュールと過去の回答を取得
+      await fetchSchedules();
+
+      // 4. 全て成功したら送信ボタンを有効化
+      document.getElementById('submit-button').disabled = false;
+
     } catch (error) {
-      console.error('LIFFのバックグラウンド初期化でエラーが発生しました:', error);
-      displayError('ユーザー情報の取得に失敗しました。回答を送信できません。');
+      console.error('LIFFの初期化またはデータ取得でエラーが発生しました:', error);
+      displayError('データの読み込みに失敗しました。画面を再読み込みしてください。');
+      // エラーが発生した場合でも、ローディング画面は非表示にする
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('main-content').classList.remove('hidden');
+    } finally {
+      // 5. ローディング画面を非表示にし、メインコンテンツを表示
+      showMainContent();
     }
   }
 
   /**
-   * GASからスケジュールを取得する
+   * ★★★★★ 変更点 ★★★★★
+   * GASからスケジュールを取得する際に、ユーザーIDを送信する。
    */
   async function fetchSchedules() {
     try {
-      const response = await postToAction('getSchedules');
+      if (!userProfile || !userProfile.userId) {
+        throw new Error("ユーザー情報が取得できませんでした。");
+      }
+      
+      // GASにどのユーザーの情報を取得したいか伝えるためにuserIdを送信
+      const payload = { userId: userProfile.userId };
+      const response = await postToAction('getSchedules', payload);
+
       if (response.status === 'success') {
-        // 成功したら「読み込み中」のメッセージをスケジュール一覧で上書きする
         renderSchedules(response.data);
       } else {
         throw new Error(response.message || 'GASからエラーが返されました。');
       }
     } catch (error) {
       console.error('スケジュールの取得に失敗しました (fetchSchedules内):', error);
-      // 失敗したら「読み込み中」のメッセージをエラー表示で上書きする
       document.getElementById('schedule-list').innerHTML = `<p class="text-center text-red-500">スケジュールの読み込みに失敗しました。</p>`;
     }
   }
@@ -147,6 +155,7 @@
     scheduleElements.forEach(el => {
       const eventId = el.dataset.eventId;
       const selected = el.querySelector(`input[name="attendance-${eventId}"]:checked`);
+      // 「未定」以外の回答を送信対象とする
       if (selected && selected.value !== '未定') {
         attendances.push({
           eventId: eventId,
@@ -171,7 +180,7 @@
     // 先に成功モーダルを表示する
     showModal('回答を送信しました！', true);
 
-    // データ送信は裏側で行う
+    // データ送信はバックグラウンドで行う
     postToAction('submitAttendance', payload)
       .then(response => {
         if (response.status === 'success') {
@@ -200,7 +209,7 @@
     
     newButton.addEventListener('click', () => {
       modal.classList.add('hidden');
-      if (closeLiff) {
+      if (closeLiff && liff.isInClient()) {
         liff.closeWindow();
       }
     });
@@ -240,6 +249,11 @@
     document.getElementById('main-content').classList.remove('hidden');
   }
 
+  /**
+   * ★★★★★ 変更点 ★★★★★
+   * スケジュールを描画する際に、GASから受け取った 'status' プロパティを元に
+   * 正しいラジオボタンに 'checked' 属性を付与する。
+   */
   function renderSchedules(schedules) {
     const listElement = document.getElementById('schedule-list');
     if (schedules.length === 0) {
@@ -253,21 +267,27 @@
       const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
       const dateStr = `${startTime.getMonth() + 1}/${startTime.getDate()}(${weekdays[startTime.getDay()]})`;
       const timeStr = `${String(startTime.getHours()).padStart(2, '0')}:${String(startTime.getMinutes()).padStart(2, '0')}`;
+      
+      // GASから受け取ったユーザーの回答状況に応じて、checked属性を動的に設定
+      const isAttending = schedule.status === '出席' ? 'checked' : '';
+      const isAbsent = schedule.status === '欠席' ? 'checked' : '';
+      // どちらでもない場合（'未定'または未登録の場合）は「未定」にチェック
+      const isUndecided = (schedule.status !== '出席' && schedule.status !== '欠席') ? 'checked' : '';
 
       return `
         <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200" data-event-id="${schedule.eventId}">
           <p class="font-semibold text-lg text-gray-800">${dateStr} ${timeStr}〜</p>
           <div class="mt-3 grid grid-cols-3 gap-2">
             <label class="flex items-center justify-center p-2 border rounded-lg cursor-pointer has-[:checked]:bg-green-100 has-[:checked]:border-green-400">
-              <input type="radio" name="attendance-${schedule.eventId}" value="出席" class="sr-only">
+              <input type="radio" name="attendance-${schedule.eventId}" value="出席" class="sr-only" ${isAttending}>
               <span class="text-gray-700">出席</span>
             </label>
             <label class="flex items-center justify-center p-2 border rounded-lg cursor-pointer has-[:checked]:bg-red-100 has-[:checked]:border-red-400">
-              <input type="radio" name="attendance-${schedule.eventId}" value="欠席" class="sr-only">
+              <input type="radio" name="attendance-${schedule.eventId}" value="欠席" class="sr-only" ${isAbsent}>
               <span class="text-gray-700">欠席</span>
             </label>
             <label class="flex items-center justify-center p-2 border rounded-lg cursor-pointer has-[:checked]:bg-gray-200 has-[:checked]:border-gray-400">
-              <input type="radio" name="attendance-${schedule.eventId}" value="未定" class="sr-only" checked>
+              <input type="radio" name="attendance-${schedule.eventId}" value="未定" class="sr-only" ${isUndecided}>
               <span class="text-gray-700">未定</span>
             </label>
           </div>
